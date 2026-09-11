@@ -1,0 +1,12 @@
+{
+  "name": "adrlint",
+  "version": "0.1.0",
+  "description": "A decision-record linter that finds two live decisions contradicting each other, not two missing template fields.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node src/demo.ts"
+  }
+}
