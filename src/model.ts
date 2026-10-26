@@ -1,7 +1,7 @@
 /**
  * Decision records as a graph, and the contradictions hiding in it.
  *
- * THE DIFFERENTIATOR LIVES HERE.
+ * Why the graph matters.
  *
  * ADR-014 says the organisation standardises on PostgreSQL. ADR-061 says new
  * services use DynamoDB by default, and never marks ADR-014 superseded. Both

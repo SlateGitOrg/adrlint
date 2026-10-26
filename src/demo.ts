@@ -1,5 +1,5 @@
 /**
- * The 60-second artefact: a subject timeline with two live, contradictory
+ * Demo: a subject timeline with two live, contradictory
  * decisions. Run: `npm run demo`
  */
 import { lint, errors, timeline } from './lint.ts';

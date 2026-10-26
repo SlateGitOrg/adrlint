@@ -1,124 +1,110 @@
 # adrlint
 
-> A decision-record linter that finds two live decisions contradicting each other, not two missing template fields.
+A decision-record linter that finds two live decisions contradicting each other, not two missing template fields.
 
-`COMPACT` · **Business Analyst** · Intermediate · ~4 days · Organisations with written decision records
+[![ci](https://github.com/SlateGitOrg/adrlint/actions/workflows/ci.yml/badge.svg)](https://github.com/SlateGitOrg/adrlint/actions/workflows/ci.yml)
 
-**Primary language:** TypeScript
-**Tags:** `adr`, `governance`, `graph-analysis`, `ci`, `documentation`
+## Why
 
----
+Decision records accumulate for years. ADR-014 says the organisation standardises on PostgreSQL. ADR-061 says new payment services use DynamoDB, and never marks ADR-014 superseded. New joiners find both, pick one each, and the estate fragments along the seam. Template linters check that fields are filled in; they cannot see that two accepted decisions disagree.
 
-## The problem
+adrlint treats the records as a graph. It flags a decision whose subject and scope overlap an earlier *active* decision with no explicit supersedes edge, and just as importantly it stays quiet about pairs that were already resolved or that govern genuinely different scopes.
 
-Decision records accumulate for three years. ADR-014 says the organisation standardises on PostgreSQL. ADR-061 says new services use DynamoDB by default, and never marks ADR-014 superseded. New joiners find both, pick one each, and the estate fragments along the seam.
+## Features
 
-## ⭐ The differentiator
+- Typed decision model: status, date, owner, subject, scope, supersedes, relates-to, review date.
+- Scope hierarchy: a parent scope governs its children (`all-services` contains `payments`), so overlap is not a literal string match.
+- `UNRESOLVED_CONTRADICTION`: two accepted decisions, same subject, overlapping scope, no supersedes edge between them.
+- Supersedes integrity: dangling references, cycles, an accepted decision that still has an accepted predecessor, and records marked superseded that nothing supersedes.
+- Hygiene: overdue review dates and ownerless decisions on accepted records.
+- Per-subject timeline showing every decision on a subject and how many are simultaneously active.
 
-Builds a **decision graph and detects unresolved contradictions** - a decision whose subject and scope overlap an earlier *active* decision without an explicit supersedes edge - rather than linting document formatting. It also flags expired review dates and orphaned supersedes chains. A generic ADR tool checks that the template fields are filled in, which has never once prevented an architectural contradiction.
+## Architecture
 
-This is the sentence to lead with when someone asks you to walk through the
-project. Everything else in this repo exists to make it true and to prove it.
-
-## Data
-
-Self-contained. A fixture corpus of around 60 decision records drawn from public ADR repositories, plus **synthesised contradictions with documented ground truth** - and, critically, correctly-superseded pairs that must *not* be flagged.
-
-> No paid API key is required to run or demo this project. Where a paid
-> service would add value it is wired as an optional enhancement behind an
-> interface with an offline mock as the default implementation.
-
-## Stack
-
-- TypeScript
-- Markdown + front-matter parsing
-- Node CLI + GitHub Action
-- Vitest
-
-## Core capabilities
-
-- Structured parsing of decision records with subject tagging and scope declaration
-- Graph of supersedes / relates-to / conflicts-with edges, with cycle and orphan detection
-- Overlap detection on subject and scope flagging probable unresolved contradictions
-- Review-date expiry and ownerless-decision reporting
-- Rendered decision timeline per subject area
-
-## Repository layout
-
-```
-src/parse/
-src/graph/
-src/rules/
-fixtures/
-test/
+```mermaid
+flowchart LR
+  F["fixtures.ts<br/>decision records"] --> M["model.ts<br/>Decision, SCOPE_TREE,<br/>scopesOverlap"]
+  M --> L["lint.ts"]
+  L --> C["contradictions"]
+  L --> S["supersedes integrity<br/>(orphans, cycles)"]
+  L --> H["hygiene<br/>(review, owner)"]
+  C --> R["Finding[]"]
+  S --> R
+  H --> R
+  M --> T["timeline(subject)"]
+  R --> D["demo.ts report"]
+  T --> D
 ```
 
-## Build plan
+`model.ts` defines the decision type and expands scopes through `SCOPE_TREE`. `lint.ts` runs three independent rule groups over the full set and concatenates their findings; errors (contradictions, broken supersedes edges) are separated from warnings (hygiene). TypeScript runs natively through Node's type stripping, so there is no build step.
 
-1. Parse and tag subjects. Subject tagging quality determines everything downstream.
-2. Build the graph, then detect overlap without a supersedes edge.
-3. Tune against the correctly-superseded fixtures until the false-positive rate is near zero.
-4. Timeline rendering last - it is the artefact people will actually look at.
+## Quick start
 
-## Testing strategy
-
-Assert all planted contradictions are found **and that correctly-superseded pairs are not flagged**. The false-positive case is the one that matters: a linter that flags every related decision as a contradiction is deleted from CI within a week.
-
-Tests assert **correctness**, not merely that the code runs. A green suite on
-this repo is a claim about behaviour under adversarial conditions; treat any
-test that would pass against a deliberately broken implementation as a bug in
-the test.
-
-## Measurable outcome
-
-> A rendered decision timeline for one subject area showing two live contradictory decisions and the missing supersedes link - a contradiction that had been live for eleven months.
-
-State it in these terms — business units, not technical ones — in your CV
-bullet and in the first thirty seconds of describing the project.
-
-## Interview questions this project answers
-
-- **How do you keep architectural decisions current?**
-- **What makes two decisions contradictory rather than merely related?**
-- **How would you introduce this to a team with 200 existing ADRs?**
-
-## What this deliberately is *not*
-
-- Not a documentation generator. It reviews what you have written.
-
-
-## Run it now
+Prerequisites: Node.js 22.18 or newer (CI uses 24). No dependencies and no `npm install`.
 
 ```bash
-npm test        # runs the suite; no install step needed
-npm run demo    # the 60-second artefact
-```
-
-Requires Node 22.6+ (24 recommended). TypeScript runs natively via
-type stripping - there is no build step and no `node_modules`.
-
-## Getting started
-
-```bash
-git clone <your-fork-url> adrlint
+git clone https://github.com/SlateGitOrg/adrlint.git
 cd adrlint
-npm install
-npx adrlint check docs/decisions/
-npx adrlint timeline --subject datastore > timeline.md
+npm test        # 21 tests
+npm run demo    # lint the sample decision log and print a report
+```
+
+## Example
+
+`npm run demo` lints ten sample records and prints (trimmed):
+
+```text
+  10 decision records spanning three years.
+  3 error(s), 4 warning(s).
+
+    [UNRESOLVED_CONTRADICTION]
+      ADR-061 ("New services default to DynamoDB") and ADR-014 ("Standardise on PostgreSQL") are both accepted, both govern primary-datastore, and their scopes overlap - but ADR-061 does not supersede ADR-014
+    [ORPHAN_SUPERSEDES]
+      ADR-058 supersedes ADR-999, which does not exist
+
+  WHAT IT DELIBERATELY DOES NOT FLAG
+    ADR-022 / ADR-048  -  already resolved by an explicit supersedes edge
+    ADR-035 / ADR-036  -  same subject, disjoint scope (batch vs payments)
+
+    2023-04-11  ACTIVE    ADR-014  Standardise on PostgreSQL
+    2025-02-03  ACTIVE    ADR-061  New services default to DynamoDB
+    2 decisions are simultaneously ACTIVE on this subject: ADR-014, ADR-061
+```
+
+To lint your own records, build `Decision[]` objects and call `lint(decisions, { today })` from `src/lint.ts`.
+
+## How it works
+
+- **Scope overlap.** Both scope sets are expanded to all descendants in `SCOPE_TREE`, then intersected. A literal intersection would miss `all-services` versus `payments`, which share no string but clearly overlap.
+- **Contradiction check.** Pairwise over accepted decisions: same subject, overlapping scopes, and neither supersedes the other. The older and newer record are named in the message.
+- **Cycle detection.** Depth-first walk over supersedes edges with a visiting set, so a cycle is reported instead of looping.
+- **False positives are the design constraint.** The fixtures include a correctly superseded pair and a same-subject pair with disjoint scopes; tests assert these are never flagged.
+
+## Testing
+
+```bash
 npm test
 ```
 
-Docker is supported but optional — every path above works on a plain
-Windows/macOS/Linux laptop without a cloud account.
+21 tests with Node's built-in runner cover: all planted contradictions found and nothing extra, correctly superseded and disjoint-scope pairs not flagged, scope overlap (parent/child, siblings, symmetry, deep nesting), supersedes integrity including cycles, hygiene warnings, timeline output, and a clean log producing no findings.
 
-## Definition of done
+## Project layout
 
-- [ ] The differentiator above is implemented, and a test proves it
-- [ ] The measurable outcome is produced by a command anyone can run
-- [ ] `README` explains the one decision a generic version gets wrong
-- [ ] CI runs the full suite on every push and is green on `main`
-- [ ] A recruiter can see the headline artefact in under 60 seconds
+```text
+src/model.ts       Decision type, scope tree, scope overlap
+src/lint.ts        Rules, findings, timeline
+src/fixtures.ts    Sample decision log with planted ground truth
+src/demo.ts        Report over the sample log
+tests/lint.test.ts
+docs/ARCHITECTURE.md
+```
 
-## Licence
+## Limitations
+
+- Subjects and scopes are explicit fields; adrlint does not infer them from prose.
+- The scope tree is a static table in `model.ts`, and there is no file or front-matter parser or CLI yet.
+- Contradiction checking is pairwise, so it is quadratic in the number of accepted decisions.
+
+## License
 
 MIT — see [LICENSE](LICENSE).
